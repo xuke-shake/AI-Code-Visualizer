@@ -1,0 +1,16 @@
+image: python:3.10-slim
+stages:
+  - lint
+  - test
+
+check_code_format:
+  stage: lint
+  script:
+    - pip install flake8
+    - flake8 main.py
+
+run_python_tests:
+  stage: test
+  script:
+    - pip install pytest
+    - pytest test_main.py
