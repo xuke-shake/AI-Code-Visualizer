@@ -1,13 +1,16 @@
 image: python:3.10-slim
+before_script:
+  - python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+  - pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
 stages:
   - lint
   - test
-before_script:
-  - python -m pip install --upgrade pip
-  - pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
 check_code_format:
   stage: lint
   script:
+    # 此时 pip 已经默认使用清华源，无需重复指定
     - pip install flake8
     - flake8 main.py
 
