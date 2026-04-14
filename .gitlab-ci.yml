@@ -2,7 +2,9 @@ image: python:3.10-slim
 stages:
   - lint
   - test
-
+before_script:
+  - python -m pip install --upgrade pip
+  - pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 check_code_format:
   stage: lint
   script:
@@ -14,4 +16,3 @@ run_python_tests:
   script:
     - pip install pytest
     - pytest test_main.py
-    
