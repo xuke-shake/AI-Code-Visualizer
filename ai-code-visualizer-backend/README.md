@@ -44,7 +44,7 @@ uvicorn app.main:app --reload
 
 打开接口文档：`http://127.0.0.1:8000/docs`
 
-## 4. 使用PostgreSQL
+## 4. 使用PostgreSQL（暂时不需要用到，因为用的是SQLite本地数据库）
 
 `.env`中设置：
 
