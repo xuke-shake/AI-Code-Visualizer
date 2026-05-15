@@ -1,0 +1,105 @@
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.orm import Session
+from app.api.deps import get_current_user
+from app.core.database import get_db
+from app.core.responses import request_trace_id, success
+from app.models.user import User
+from app.schemas.common import Page
+from app.schemas.project import ProjectConfigUpdate, ProjectCreate, ProjectCreateOut, ProjectOut, ProjectUpdate
+from app.schemas.task import ParseRequest, SyncRequest, TaskStartOut
+from app.services.audit_service import AuditService
+from app.services.index_service import IndexService
+from app.services.project_service import ProjectService
+
+router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+@router.get("")
+def list_projects(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    keyword: str | None = None,
+    language: str | None = None,
+    order_by: str = "updated_at",
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    items, total = ProjectService(db).list_projects(current_user, page, page_size, keyword, language, order_by, order)
+    data = Page[ProjectOut](
+        items=[ProjectOut.model_validate(item) for item in items], total=total, page=page, page_size=page_size
+    ).model_dump()
+    return success(data, trace_id=request_trace_id(request))
+
+
+@router.post("")
+def create_project(payload: ProjectCreate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    project = ProjectService(db).create_project(current_user, payload)
+    AuditService(db).record(current_user.id, "project.create", "project", project.id, {"name": project.name}, request)
+    db.commit()
+    data = ProjectCreateOut(project=ProjectOut.model_validate(project), task_id=None).model_dump()
+    return success(data, trace_id=request_trace_id(request))
+
+
+@router.get("/{project_id}")
+def get_project(project_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    project = ProjectService(db).get_owned(current_user, project_id)
+    return success(ProjectOut.model_validate(project).model_dump(), trace_id=request_trace_id(request))
+
+
+@router.patch("/{project_id}")
+def update_project(project_id: int, payload: ProjectUpdate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    project = ProjectService(db).update_project(current_user, project_id, payload)
+    AuditService(db).record(current_user.id, "project.update", "project", project.id, payload.model_dump(exclude_unset=True), request)
+    db.commit()
+    return success(ProjectOut.model_validate(project).model_dump(), trace_id=request_trace_id(request))
+
+
+@router.delete("/{project_id}")
+def delete_project(project_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    ProjectService(db).delete_project(current_user, project_id)
+    AuditService(db).record(current_user.id, "project.delete", "project", project_id, request=request)
+    db.commit()
+    return success({"deleted": True}, trace_id=request_trace_id(request))
+
+
+@router.get("/{project_id}/config")
+def get_config(project_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    project = ProjectService(db).get_owned(current_user, project_id)
+    return success(project.config_json or {}, trace_id=request_trace_id(request))
+
+
+@router.patch("/{project_id}/config")
+def update_config(project_id: int, payload: ProjectConfigUpdate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    config = payload.config_json.model_dump() if hasattr(payload.config_json, "model_dump") else dict(payload.config_json)
+    project = ProjectService(db).update_project(current_user, project_id, ProjectUpdate(config_json=config))
+    return success(project.config_json or {}, trace_id=request_trace_id(request))
+
+
+@router.post("/{project_id}/parse")
+def parse_project(project_id: int, payload: ParseRequest, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    service = ProjectService(db)
+    project = service.get_owned(current_user, project_id)
+    task = service.create_task(current_user, project, "parse", "解析任务已创建")
+    db.flush()
+    task = IndexService(db).parse_full(project, task)
+    data = TaskStartOut(task_id=task.id, status=task.status, progress=task.progress).model_dump()
+    return success(data, trace_id=request_trace_id(request))
+
+
+@router.post("/{project_id}/sync")
+def sync_project(project_id: int, payload: SyncRequest, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    service = ProjectService(db)
+    project = service.get_owned(current_user, project_id)
+    task = service.create_task(current_user, project, "sync", "同步任务已创建")
+    db.flush()
+    task = IndexService(db).sync_incremental(project, task)
+    data = TaskStartOut(task_id=task.id, status=task.status, progress=task.progress).model_dump()
+    return success(data, trace_id=request_trace_id(request))
+
+
+@router.get("/{project_id}/changes")
+def project_changes(project_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    ProjectService(db).get_owned(current_user, project_id)
+    return success({"added": [], "modified": [], "deleted": []}, trace_id=request_trace_id(request))

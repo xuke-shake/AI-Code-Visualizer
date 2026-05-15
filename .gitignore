@@ -1,0 +1,39 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env
+.env
+
+# Database
+dev.db
+*.sqlite
+*.sqlite3
+*.db
+
+# Storage
+storage/
+storage/uploads/
+storage/exports/
+
+# Spec workflow temp files
+.spec-workflow/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+.spec-workflow/
