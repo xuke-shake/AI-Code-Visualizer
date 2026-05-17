@@ -29,8 +29,8 @@ class DiagramService:
         task.status = "running"
         task.progress = 30
         task.message = "正在执行Agent分析"
-        orchestrator = AgentOrchestrator()
-        result = orchestrator.run_analysis(project.name, payload.prompt, payload.diagram_type)
+        orchestrator = AgentOrchestrator(self.db)
+        result = orchestrator.run_analysis(project.id, project.name, payload.prompt, payload.diagram_type)
         validation = validate_mermaid(result.mermaid_code)
         if not validation.valid:
             raise AppException("Mermaid校验失败: " + "; ".join(validation.errors))
@@ -48,7 +48,7 @@ class DiagramService:
         self.db.add(diagram)
         self.db.flush()
         for item in result.agent_logs:
-            self.db.add(AgentRun(task_id=task.id, status="success", **item))
+            self.db.add(AgentRun(task_id=task.id, **item))
         task.status = "success"
         task.progress = 100
         task.message = "图表生成成功"
