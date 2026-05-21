@@ -1,8 +1,10 @@
 """测试 IndexService —— 模拟前端触发完整解析流程"""
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 
 from datetime import datetime, timezone
-from pathlib import Path
-
 from app.core.database import SessionLocal
 from app.models.user import User
 from app.models.project import Project
@@ -16,7 +18,8 @@ from app.services.index_service import IndexService
 
 # ---- 配置 ----
 ZIP_PATH = Path(r"D:\Program\Progrom_code\ai-code-visualizer-backend\storage\vue3.zip")
-ZIP_OBJECT_KEY = "vue3.zip"  # 直接放在 storage 根目录
+SYNC_ZIP_PATH = Path(r"D:\Program\Progrom_code\ai-code-visualizer-backend\storage\vue3_v2.zip")  # 有增/删/改的ZIP，用于测 sync_incremental
+ZIP_OBJECT_KEY = "vue3.zip"
 PROJECT_ID = 1
 USER_ID = 1
 
@@ -98,10 +101,18 @@ for d in db.query(Dependency).limit(20).all():
     tgt_path = Path(tgt.relative_path).name if tgt else "?"
     print(f"  {d.relation_type}: {src_path} -> {tgt_path}  (confidence={d.confidence})  evidence: {d.evidence}")
 
-# 5. 测试 sync_incremental —— 同一 ZIP 再次同步，应检测到无变化
+# 5. 测试 sync_incremental —— 模拟上传新 ZIP
+if not SYNC_ZIP_PATH.exists():
+    print("\n[跳过] sync_incremental 测试：未找到第二个 ZIP")
+    db.close()
+    print("\n完成")
+    exit()
+
 print("\n" + "=" * 60)
-print("sync_incremental 开始 (同 ZIP)")
+print(f"用 {SYNC_ZIP_PATH.name} 覆盖 {ZIP_PATH.name} 模拟新上传")
 print("=" * 60)
+import shutil     
+shutil.copy2(SYNC_ZIP_PATH, ZIP_PATH)   # 复制文件 + 保留元数据（时间等）
 
 sync_task = AnalysisTask(
     project_id=PROJECT_ID,
