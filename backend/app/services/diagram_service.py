@@ -30,7 +30,17 @@ class DiagramService:
         task.progress = 30
         task.message = "正在执行Agent分析"
         orchestrator = AgentOrchestrator()
-        result = orchestrator.run_analysis(project.name, payload.prompt, payload.diagram_type)
+        scope_paths = []
+        if payload.parameters and isinstance(payload.parameters, dict):
+            scope_paths = payload.parameters.get("selectedPaths") or []
+        result = orchestrator.run_analysis(
+            project.name,
+            payload.prompt,
+            payload.diagram_type,
+            db=self.db,
+            project_id=project.id,
+            scope_paths=scope_paths,
+        )
         validation = validate_mermaid(result.mermaid_code)
         if not validation.valid:
             raise AppException("Mermaid校验失败: " + "; ".join(validation.errors))

@@ -15,8 +15,8 @@ from app.models.dependency import Dependency
 from app.services.index_service import IndexService
 
 # ---- 配置 ----
-ZIP_PATH = Path(r"D:\Program\Progrom_code\ai-code-visualizer-backend\storage\vue3.zip")
-ZIP_OBJECT_KEY = "vue3.zip"  # 直接放在 storage 根目录
+ZIP_PATH = Path(r"C:/Users/29677/Desktop/prism---metabolic-console-main-test.zip")
+ZIP_OBJECT_KEY = "prism---metabolic-console-main-test.zip"  # 直接放在 storage 根目录
 PROJECT_ID = 1
 USER_ID = 1
 

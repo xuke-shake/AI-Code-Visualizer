@@ -10,6 +10,9 @@ from app.schemas.task import ParseRequest, SyncRequest, TaskStartOut
 from app.services.audit_service import AuditService
 from app.services.index_service import IndexService
 from app.services.project_service import ProjectService
+from app.models.source_file import SourceFile
+from app.models.diagram import Diagram
+from app.schemas.diagram import DiagramOut
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -103,3 +106,88 @@ def sync_project(project_id: int, payload: SyncRequest, request: Request, db: Se
 def project_changes(project_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     ProjectService(db).get_owned(current_user, project_id)
     return success({"added": [], "modified": [], "deleted": []}, trace_id=request_trace_id(request))
+
+def build_file_tree(source_files: list[SourceFile]) -> list[dict]:
+    root: list[dict] = []
+    dir_index: dict[str, dict] = {}
+
+    for sf in source_files:
+        parts = [p for p in sf.relative_path.replace("\\", "/").split("/") if p]
+        if not parts:
+            continue
+
+        current_children = root
+        current_path = ""
+
+        for part in parts[:-1]:
+            current_path = f"{current_path}/{part}" if current_path else part
+
+            node = dir_index.get(current_path)
+            if node is None:
+                node = {
+                    "id": f"dir:{current_path}",
+                    "name": part,
+                    "path": current_path,
+                    "type": "directory",
+                    "children": [],
+                }
+                dir_index[current_path] = node
+                current_children.append(node)
+
+            current_children = node["children"]
+
+        file_path = "/".join(parts)
+        current_children.append(
+            {
+                "id": f"file:{sf.id}",
+                "name": parts[-1],
+                "path": file_path,
+                "type": "file",
+            }
+        )
+
+    return root
+
+
+@router.get("/{project_id}/tree")
+def get_project_tree(
+    project_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ProjectService(db).get_owned(current_user, project_id)
+
+    files = (
+        db.query(SourceFile)
+        .filter(SourceFile.project_id == project_id)
+        .order_by(SourceFile.relative_path.asc())
+        .all()
+    )
+
+    return success(build_file_tree(files), trace_id=request_trace_id(request))
+
+
+@router.get("/{project_id}/diagram")
+def get_latest_project_diagram(
+    project_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ProjectService(db).get_owned(current_user, project_id)
+
+    diagram = (
+        db.query(Diagram)
+        .filter(Diagram.project_id == project_id)
+        .order_by(Diagram.created_at.desc())
+        .first()
+    )
+
+    if not diagram:
+        return success(None, trace_id=request_trace_id(request))
+
+    return success(
+        DiagramOut.model_validate(diagram).model_dump(),
+        trace_id=request_trace_id(request),
+    )
