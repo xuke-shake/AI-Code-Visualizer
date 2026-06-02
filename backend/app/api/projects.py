@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request , HTTPException
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -13,6 +13,7 @@ from app.services.project_service import ProjectService
 from app.models.source_file import SourceFile
 from app.models.diagram import Diagram
 from app.schemas.diagram import DiagramOut
+import traceback
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -81,13 +82,48 @@ def update_config(project_id: int, payload: ProjectConfigUpdate, request: Reques
 
 
 @router.post("/{project_id}/parse")
-def parse_project(project_id: int, payload: ParseRequest, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def parse_project(
+    project_id: int,
+    payload: ParseRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     service = ProjectService(db)
     project = service.get_owned(current_user, project_id)
+
     task = service.create_task(current_user, project, "parse", "解析任务已创建")
+
     db.flush()
-    task = IndexService(db).parse_full(project, task)
-    data = TaskStartOut(task_id=task.id, status=task.status, progress=task.progress).model_dump()
+    db.commit()
+    db.refresh(task)
+
+    print("DEBUG parse before:", task.id, task.status, task.progress)
+
+    try:
+        task = IndexService(db).parse_full(project, task)
+    except Exception as exc:
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"parse_full 抛出异常: {type(exc).__name__}: {exc}",
+        )
+
+    print("DEBUG parse after:", task)
+
+    if task is None:
+        raise HTTPException(
+            status_code=500,
+            detail="parse_full 返回了 None，请检查 index_service.py 里 parse_full 是否所有分支都有 return task",
+        )
+
+    data = TaskStartOut(
+        task_id=task.id,
+        status=task.status,
+        progress=task.progress,
+    ).model_dump()
+
     return success(data, trace_id=request_trace_id(request))
 
 

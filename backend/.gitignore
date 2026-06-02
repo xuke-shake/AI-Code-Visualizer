@@ -13,3 +13,4 @@ storage/exports/
 .DS_Store
 Thumbs.db
 *.log
+.spec-workflow/

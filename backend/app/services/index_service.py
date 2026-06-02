@@ -26,6 +26,9 @@ class IndexService:
         self.db = db
 
     def parse_full(self, project: Project, task: AnalysisTask) -> AnalysisTask:
+        task_id = task.id
+        project_id = project.id
+
         project.status = "parsing"
         task.status = "running"
         task.progress = 10
@@ -38,6 +41,7 @@ class IndexService:
             task.status = "failed"
             task.message = "未找到上传的 ZIP 文件"
             task.finished_at = datetime.now(timezone.utc)
+            project.status = "failed"
             self.db.commit()
             self.db.refresh(task)
             return task
@@ -48,6 +52,7 @@ class IndexService:
             task.status = "failed"
             task.message = f"ZIP 文件不存在: {repository.zip_object_key}"
             task.finished_at = datetime.now(timezone.utc)
+            project.status = "failed"
             self.db.commit()
             self.db.refresh(task)
             return task
@@ -57,31 +62,53 @@ class IndexService:
         self.db.flush()
 
         try:
-            stats = parse_project(self.db, project.id, Path(zip_path))
+        # 全量解析前先清理旧索引，避免重复解析同一个项目时 source_files 唯一键冲突
+            self._clear_project_index(project_id)
+    
+            stats = parse_project(self.db, project_id, Path(zip_path))
+
         except Exception as exc:
-            task.status = "failed"
-            task.message = f"解析失败: {exc}"
-            task.finished_at = datetime.now(timezone.utc)
+            self.db.rollback()
+
+            task = self.db.get(AnalysisTask, task_id)
+            project = self.db.get(Project, project_id)
+
+            if task:
+                task.status = "failed"
+                task.progress = 100
+                task.message = f"解析失败: {exc}"
+                task.finished_at = datetime.now(timezone.utc)
+
+            if project:
+                project.status = "failed"
+    
             self.db.commit()
-            self.db.refresh(task)
+
+            if task:
+                self.db.refresh(task)
+
             return task
 
-        project.status = "ready"
+    # 这里是你原来缺失的成功分支
+        task = self.db.get(AnalysisTask, task_id)
+        project = self.db.get(Project, project_id)
 
-        #打个时间戳标签
-        project.last_index_version = f"idx-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-        
+        if task is None:
+            raise RuntimeError(f"解析完成但任务不存在: task_id={task_id}")
+
         task.status = "success"
         task.progress = 100
-        task.message = "解析完成，已建立基础索引"
-        task.result_json = {
-            "source_files": stats["source_files"],
-            "python_files": stats["python_files"],
-            "symbols": stats["symbols"],
-            "chunks": stats["chunks"],
-            "dependencies": stats["dependencies"],
-        }
+        task.message = (
+            f"解析完成：文件 {stats.get('files', 0)} 个，"
+            f"符号 {stats.get('symbols', 0)} 个，"
+            f"代码块 {stats.get('chunks', 0)} 个，"
+            f"依赖 {stats.get('dependencies', 0)} 条"
+        )
         task.finished_at = datetime.now(timezone.utc)
+   
+        if project:
+            project.status = "ready"
+ 
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -232,7 +259,25 @@ class IndexService:
         return task
 
     # ── helpers ──
+    def _clear_project_index(self, project_id: int) -> None:
+        """清理某个项目的旧解析索引，供全量解析前使用。"""
+        self.db.query(Dependency).filter(
+            Dependency.project_id == project_id
+        ).delete(synchronize_session=False)
 
+        self.db.query(CodeChunk).filter(
+            CodeChunk.project_id == project_id
+        ).delete(synchronize_session=False)
+
+        self.db.query(Symbol).filter(
+            Symbol.project_id == project_id
+        ).delete(synchronize_session=False)
+
+        self.db.query(SourceFile).filter(
+            SourceFile.project_id == project_id
+        ).delete(synchronize_session=False)
+        self.db.flush()
+        
     def _delete_file_data(self, source_file_id: int) -> None:
         self.db.query(CodeChunk).filter(CodeChunk.file_id == source_file_id).delete()
         self.db.query(Symbol).filter(Symbol.file_id == source_file_id).delete()

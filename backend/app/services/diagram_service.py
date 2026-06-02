@@ -58,7 +58,7 @@ class DiagramService:
         self.db.add(diagram)
         self.db.flush()
         for item in result.agent_logs:
-            self.db.add(AgentRun(task_id=task.id, status="success", **item))
+            self._record_agent_run(task.id, item)
         task.status = "success"
         task.progress = 100
         task.message = "图表生成成功"
@@ -67,6 +67,33 @@ class DiagramService:
         self.db.commit()
         self.db.refresh(diagram)
         return diagram
+    
+    def _record_agent_run(self, task_id: int, item: dict) -> None:
+        """兼容 agent 日志格式，并转换成 agent_runs 表字段。"""
+        error = item.get("errors") or item.get("error_message")
+        duration_sec = item.get("duration_sec")
+        latency_ms = item.get("latency_ms")
+
+        if latency_ms is None and duration_sec is not None:
+            try:
+                latency_ms = int(float(duration_sec) * 1000)
+            except (TypeError, ValueError):
+                latency_ms = 0
+
+        self.db.add(
+            AgentRun(
+                task_id=task_id,
+                agent_name=(item.get("agent_name") or "UnknownAgent")[:64],
+                input_summary=item.get("input_summary"),
+                output_summary=item.get("output_summary"),
+                model_name=item.get("model_name"),
+                prompt_tokens=item.get("prompt_tokens") or 0,
+                completion_tokens=item.get("completion_tokens") or 0,
+                latency_ms=latency_ms or 0,
+                status="failed" if error else item.get("status", "success"),
+                error_message=error,
+            )
+        )
 
     def update_diagram(self, user: User, diagram_id: int, payload: DiagramUpdate) -> Diagram:
         diagram = self.get_diagram(user, diagram_id)

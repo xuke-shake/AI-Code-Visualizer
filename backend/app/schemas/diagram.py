@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class AnalysisCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     diagram_type: str = Field(default="flowchart", pattern="^(flowchart|sequence|state|architecture)$")
-    scope: str | None = Field(default=None, max_length=512)
+    scope: str | None = Field(default=None, max_length=8000)
     title: str | None = Field(default=None, max_length=128)
     parameters: dict | None = None
 
