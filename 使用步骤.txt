@@ -1,0 +1,277 @@
+# AI-Code-Visualizer 项目启动说明
+## 一、环境要求
+本项目分为后端和前端两部分：
+
+```text
+  backend/
+  frontend/
+
+
+## 二、启动后端
+进入后端目录：
+```powershell
+cd 进入项目文件backend文件夹
+```
+如果还没有虚拟环境，先创建：
+```powershell
+py -3.11 -m venv .venv
+```
+激活虚拟环境：
+```powershell
+.\.venv\Scripts\activate
+```
+安装依赖：
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+
+---
+
+## 三、配置后端 `.env`
+在：
+```text
+backend/.env
+``
+
+配置基础环境变量。
+如果暂时不接大模型，可以这样：
+
+```env
+LLM_ENABLED=auto
+LLM_API_KEY=
+LLM_BASE_URL=
+LLM_MODEL=
+LLM_MAX_CONTEXT_CHARS=12000
+```
+如果要接 DeepSeek API，配置为：
+```env
+LLM_ENABLED=true
+LLM_API_KEY=你的DeepSeek_API_Key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
+LLM_MAX_CONTEXT_CHARS=12000
+```
+
+注意：
+```text
+LLM_BASE_URL 不要写 /anthropic，直接写 https://api.deepseek.com。
+```
+
+---
+
+## 四、启动后端服务
+
+如果 8000 端口没被占用，可以用：
+
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --access-log --log-level debug
+```
+
+如果 8000 被占用，使用 8001：
+
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --access-log --log-level debug
+```
+
+启动成功后应该看到类似：
+
+```text
+Uvicorn running on http://127.0.0.1:8001
+Application startup complete.
+```
+
+可以浏览器访问测试：
+
+```text
+http://127.0.0.1:8001/api/projects?page=1&page_size=10
+```
+
+如果返回：
+
+```json
+{"detail":"Not authenticated"}
+```
+
+说明后端已经正常启动，只是接口需要登录。
+
+---
+
+## 五、启动前端
+
+新开一个 PowerShell，进入前端目录：
+
+```powershell
+cd C:\Users\29677\Desktop\MyProject\frontend
+```
+
+安装依赖：
+
+```powershell
+npm install
+```
+
+修改前端环境变量：
+
+```text
+frontend/.env
+```
+
+如果后端跑在 8001：
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8001
+VITE_ENABLE_MOCK=false
+```
+
+如果后端跑在 8000：
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+VITE_ENABLE_MOCK=false
+```
+
+注意：修改 `.env` 后必须重启前端。
+
+启动前端：
+
+```powershell
+npm run dev
+```
+
+默认访问：
+
+```text
+http://localhost:5173
+```
+
+---
+
+## 六、正常测试流程
+
+打开前端页面后，按下面流程测试：
+
+```text
+1. 注册或登录账号
+2. 新建项目
+3. 上传 ZIP 源码包
+4. 点击“同步代码”或“解析”
+5. 等待解析完成
+6. 左侧文件树应能显示源码文件
+7. 在右侧 AI 指令框输入需求
+8. 选择图表类型，例如流程图、类图、时序图、状态图
+9. 点击“生成图表”
+10. 中间区域应渲染 Mermaid 图
+11. 点击图中的节点，右侧源码面板应显示对应代码
+```
+
+---
+
+## 七、判断是否启动成功
+后端终端看到类似：
+```text
+POST /api/projects/3/parse HTTP/1.1" 200 OK
+POST /api/projects/3/analysis HTTP/1.1" 200 OK
+GET /api/diagrams/xx HTTP/1.1" 200 OK
+```
+
+说明主流程成功。
+
+前端页面能正常看到：
+
+```text
+文件树
+Mermaid 图表
+源码面板
+AI 指令区域
+```
+
+说明前后端联调成功。
+
+---
+
+## 八、查看 Agent 是否运行
+
+可以用软件（你们自己看看什么好就用什么，我用的Navicat Premium Lite）打开后端 SQLite 数据库，查看表：
+
+```text
+agent_runs
+```
+
+重点看这些字段：
+
+```text
+agent_name
+status
+model_name
+latency_ms
+error_message
+```
+
+如果没有接入 DeepSeek，可能会看到：
+
+```text
+未启用 LLM，沿用规则图
+```
+
+如果 DeepSeek 启用了，最新记录里通常会出现：
+
+```text
+model_name = deepseek-chat
+```
+
+并且 `DiagramAgent` 的输出不再是“未启用 LLM”。
+
+---
+
+## 九、常见问题
+
+### 1. 端口 8000 被占用
+
+可以改用 8001 启动后端：
+
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --access-log --log-level debug
+```
+
+然后前端 `.env` 也要同步改成：
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8001
+```
+
+### 2. 前端请求还是打到旧端口
+
+修改 `frontend/.env` 后，一定要重启前端：
+
+```powershell
+Ctrl + C
+npm run dev
+```
+
+### 3. 后端依赖安装失败
+
+确认 Python 是 3.11：
+
+```powershell
+python --version
+```
+
+如果不是 Python 3.11，重新创建虚拟环境。
+
+### 4. DeepSeek 没有启用
+
+检查：
+
+```env
+LLM_ENABLED=true
+LLM_API_KEY=你的key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
+```
+
+然后重启后端。
+
+
+后端已经做了部分自动修复，但如果仍然报错，可以查看 Mermaid 源码再手动调整。
