@@ -131,6 +131,7 @@ http://127.0.0.1:8001/api/projects?page=1&page_size=10
 
 ```powershell
 cd 项目路径\frontend
+vite.config.ts里有需要填的后端网址
 ```
 
 安装依赖：
