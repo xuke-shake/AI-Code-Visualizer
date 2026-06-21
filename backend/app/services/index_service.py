@@ -1,3 +1,6 @@
+import shutil
+import subprocess
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,36 +38,62 @@ class IndexService:
         task.message = "正在准备解析"
         self.db.flush()
 
-        repository = project.repository
-
-        if not repository or not repository.zip_object_key:
-            task.status = "failed"
-            task.message = "未找到上传的 ZIP 文件"
-            task.finished_at = datetime.now(timezone.utc)
-            project.status = "failed"
-            self.db.commit()
-            self.db.refresh(task)
-            return task
-
         settings = get_settings()
-        zip_path = settings.storage_path / repository.zip_object_key
-        if not zip_path.exists():
-            task.status = "failed"
-            task.message = f"ZIP 文件不存在: {repository.zip_object_key}"
-            task.finished_at = datetime.now(timezone.utc)
-            project.status = "failed"
-            self.db.commit()
-            self.db.refresh(task)
-            return task
+
+        # === 🚀 核心控制：兼容 Git 文件夹（安全过滤 .git 隐藏目录） ===
+        if project.source_type == "git":
+            project_dir = settings.storage_path / "projects" / str(project_id)
+            if not project_dir.exists():
+                task.status = "failed"
+                task.message = "未找到克隆的 Git 仓库目录"
+                task.finished_at = datetime.now(timezone.utc)
+                project.status = "failed"
+                self.db.commit()
+                self.db.refresh(task)
+                return task
+            
+            # 安全打包：通过 zipfile 逐个写入文件，并彻底跳过含有 .git 的路径
+            zip_filename = f"git_repo_{project_id}.zip"
+            zip_path = settings.storage_path / zip_filename
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for file_path in project_dir.rglob('*'):
+                    # 过滤掉任何属于 .git 版本控制目录下的二进制文件
+                    if '.git' in file_path.parts:
+                        continue
+                    if file_path.is_file():
+                        zf.write(file_path, file_path.relative_to(project_dir))
+            
+        else:
+            # 原本的 ZIP 处理逻辑
+            repository = project.repository
+            if not repository or not repository.zip_object_key:
+                task.status = "failed"
+                task.message = "未找到上传的 ZIP 文件"
+                task.finished_at = datetime.now(timezone.utc)
+                project.status = "failed"
+                self.db.commit()
+                self.db.refresh(task)
+                return task
+
+            zip_path = settings.storage_path / repository.zip_object_key
+            if not zip_path.exists():
+                task.status = "failed"
+                task.message = f"ZIP 文件不存在: {repository.zip_object_key}"
+                task.finished_at = datetime.now(timezone.utc)
+                project.status = "failed"
+                self.db.commit()
+                self.db.refresh(task)
+                return task
+        # ===============================================
 
         task.progress = 20
         task.message = "正在扫描文件"
         self.db.flush()
 
         try:
-        # 全量解析前先清理旧索引，避免重复解析同一个项目时 source_files 唯一键冲突
+            # 全量解析前先清理旧索引，避免重复解析同一个项目时 source_files 唯一键冲突
             self._clear_project_index(project_id)
-    
             stats = parse_project(self.db, project_id, Path(zip_path))
 
         except Exception as exc:
@@ -89,7 +118,7 @@ class IndexService:
 
             return task
 
-    # 这里是你原来缺失的成功分支
+        # 成功分支
         task = self.db.get(AnalysisTask, task_id)
         project = self.db.get(Project, project_id)
 
@@ -108,37 +137,71 @@ class IndexService:
    
         if project:
             project.status = "ready"
+            project.file_count = stats.get('files', 0)  # 👈 就是这行发挥作用，完美回填文件数！
  
         self.db.commit()
         self.db.refresh(task)
         return task
 
-
-#检查新增代码块
+    # === 🚀 增量同步增强版 ===
     def sync_incremental(self, project: Project, task: AnalysisTask) -> AnalysisTask:
         task.status = "running"
         task.progress = 10
         task.message = "正在对比文件差异"
         self.db.flush()
 
-        repository = project.repository
-        if not repository or not repository.zip_object_key:
-            task.status = "failed"
-            task.message = "未找到上传的 ZIP 文件"
-            task.finished_at = datetime.now(timezone.utc)
-            self.db.commit()
-            self.db.refresh(task)
-            return task
-
         settings = get_settings()
-        zip_path = settings.storage_path / repository.zip_object_key
-        if not zip_path.exists():
-            task.status = "failed"
-            task.message = f"ZIP 文件不存在: {repository.zip_object_key}"
-            task.finished_at = datetime.now(timezone.utc)
-            self.db.commit()
-            self.db.refresh(task)
-            return task
+
+        # 如果是 Git，按下同步按钮时，直接底层调用 git pull 拉取最新代码
+        if project.source_type == "git":
+            project_dir = settings.storage_path / "projects" / str(project.id)
+            if project_dir.exists():
+                try:
+                    subprocess.run(["git", "pull"], cwd=str(project_dir), check=True, capture_output=True)
+                except Exception as e:
+                    task.status = "failed"
+                    task.message = f"Git 远端更新失败: {e}"
+                    task.finished_at = datetime.now(timezone.utc)
+                    self.db.commit()
+                    self.db.refresh(task)
+                    return task
+            else:
+                task.status = "failed"
+                task.message = "未找到 Git 仓库目录，无法同步"
+                task.finished_at = datetime.now(timezone.utc)
+                self.db.commit()
+                self.db.refresh(task)
+                return task
+                
+            zip_filename = f"git_repo_{project.id}.zip"
+            zip_path = settings.storage_path / zip_filename
+            
+            # 同样在增量同步打包时安全排除 .git 目录
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for file_path in project_dir.rglob('*'):
+                    if '.git' in file_path.parts:
+                        continue
+                    if file_path.is_file():
+                        zf.write(file_path, file_path.relative_to(project_dir))
+            
+        else:
+            repository = project.repository
+            if not repository or not repository.zip_object_key:
+                task.status = "failed"
+                task.message = "未找到上传的 ZIP 文件"
+                task.finished_at = datetime.now(timezone.utc)
+                self.db.commit()
+                self.db.refresh(task)
+                return task
+
+            zip_path = settings.storage_path / repository.zip_object_key
+            if not zip_path.exists():
+                task.status = "failed"
+                task.message = f"ZIP 文件不存在: {repository.zip_object_key}"
+                task.finished_at = datetime.now(timezone.utc)
+                self.db.commit()
+                self.db.refresh(task)
+                return task
 
         # 1. 只读扫描新 ZIP，与 DB 现有文件做 diff
         new_files = scan_zip_inventory(zip_path)
@@ -161,7 +224,6 @@ class IndexService:
 
         total_changes = len(added) + len(modified) + len(deleted)
         if total_changes == 0:
-            #打个时间戳标签
             project.last_index_version = f"idx-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
             task.status = "success"
             task.progress = 100
@@ -241,7 +303,6 @@ class IndexService:
 
         project.status = "ready"
         project.file_count = len(new_paths)
-        #打个时间戳标签
         project.last_index_version = f"idx-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
         task.status = "success"
         task.progress = 100

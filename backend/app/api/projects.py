@@ -1,7 +1,13 @@
-from fastapi import APIRouter, Depends, Query, Request , HTTPException
+import os
+import shutil
+import subprocess
+import traceback
+from fastapi import APIRouter, Depends, Query, Request, HTTPException
 from sqlalchemy.orm import Session
+
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.core.responses import request_trace_id, success
 from app.models.user import User
 from app.schemas.common import Page
@@ -13,7 +19,6 @@ from app.services.project_service import ProjectService
 from app.models.source_file import SourceFile
 from app.models.diagram import Diagram
 from app.schemas.diagram import DiagramOut
-import traceback
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -40,6 +45,42 @@ def list_projects(
 @router.post("")
 def create_project(payload: ProjectCreate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     project = ProjectService(db).create_project(current_user, payload)
+    
+    # === 🚀 核心新增：监听 Git 仓库并自动高速下载 ===
+    if payload.source_type == "git" and payload.repo_url:
+        settings = get_settings()
+        
+        # 💡 【关键注意】：这里假设存放解析代码的真实文件夹是 storage_path / projects / 项目ID。
+        # 如果你们后端存 ZIP 解压文件的真实路径不长这样（比如叫 repos），请务必在这行修改！
+        project_dir = os.path.join(settings.storage_path, "projects", str(project.id))
+        
+        try:
+            # 1. 确保将要克隆的目录干干净净
+            if os.path.exists(project_dir):
+                shutil.rmtree(project_dir)
+            os.makedirs(project_dir, exist_ok=True)
+            
+            # 2. 组装克隆大炮 (--depth 1 代表只拉最新代码，丢弃历史记录，速度起飞)
+            clone_cmd = ["git", "clone", "--depth", "1"]
+            if payload.branch:
+                clone_cmd.extend(["-b", payload.branch])
+            clone_cmd.extend([payload.repo_url, project_dir])
+            
+            # 3. 防止拉取私密仓库时，终端一直弹窗要输入密码，导致后端死锁卡挂
+            env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+            
+            # 4. 开火！呼叫操作系统执行
+            subprocess.run(clone_cmd, check=True, capture_output=True, text=True, env=env)
+            
+        except subprocess.CalledProcessError as e:
+            # 发现错误（比如网址不存在），立刻回滚删掉刚才数据库里建好的项目，并向网页发精准报错
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Git 仓库拉取失败，请确保是公开仓库且地址正确！详细: {e.stderr.strip()}")
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"服务器执行 Git 命令时发生内部错误: {str(e)}")
+    # =========================================================
+
     AuditService(db).record(current_user.id, "project.create", "project", project.id, {"name": project.name}, request)
     db.commit()
     data = ProjectCreateOut(project=ProjectOut.model_validate(project), task_id=None).model_dump()
@@ -142,6 +183,7 @@ def sync_project(project_id: int, payload: SyncRequest, request: Request, db: Se
 def project_changes(project_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     ProjectService(db).get_owned(current_user, project_id)
     return success({"added": [], "modified": [], "deleted": []}, trace_id=request_trace_id(request))
+
 
 def build_file_tree(source_files: list[SourceFile]) -> list[dict]:
     root: list[dict] = []
