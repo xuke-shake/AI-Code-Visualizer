@@ -88,6 +88,21 @@ async function bootstrap() {
 }
 
 // ==============================================
+// 8.1 项目切换处理
+// ==============================================
+async function handleProjectChange(newProjectId: string) {
+  // 先清空画布内容，避免显示旧项目的图表
+  diagramStore.setEditorContent('')
+  
+  // 重新初始化新项目
+  await projectStore.selectProject(newProjectId)
+  await diagramStore.fetchDiagram(newProjectId)
+  selectedPaths.value = collectLeafPaths(projectStore.fileTree)
+  taskStore.disconnect()
+  taskStore.connect(newProjectId)
+}
+
+// ==============================================
 // 9. 生成图表
 // ==============================================
 async function handleGenerate(payload: { instruction: string; type: 'flowchart' | 'sequenceDiagram' | 'stateDiagram' | 'classDiagram' }) {
@@ -173,6 +188,19 @@ watch(
       await projectStore.fetchProjects()
       await projectStore.selectProject(projectId.value)
       await diagramStore.refreshDiagram(projectId.value)
+    }
+  },
+)
+
+// ==============================================
+// 15.1 监听项目ID变化（只在项目真正切换时触发，不在初始化时触发）
+// ==============================================
+watch(
+  projectId,
+  async (newProjectId, oldProjectId) => {
+    // 只有当项目真正切换时（oldProjectId 存在且与 newProjectId 不同）才执行
+    if (newProjectId && oldProjectId && newProjectId !== oldProjectId) {
+      await handleProjectChange(newProjectId)
     }
   },
 )

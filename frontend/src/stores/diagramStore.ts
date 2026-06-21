@@ -1,4 +1,4 @@
-﻿import { computed, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { exportDiagramApi, fetchDiagramApi, generateDiagramApi, saveDiagramApi, shareDiagramApi } from '@/api/diagram'
 import type { DiagramDetail, ExportType, GenerateDiagramPayload } from '@/types'
