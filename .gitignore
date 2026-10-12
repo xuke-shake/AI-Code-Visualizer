@@ -1,39 +1,66 @@
-# Python
+# Python environments and caches
+__pycache__/
+*.py[cod]
 .venv/
 venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+env/
 .pytest_cache/
+.pytest-tmp-*/
+.pytest-*/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
-# Env
+# Local configuration; keep safe templates
 .env
+.env.*
+!.env.example
+!.env.*.example
 
-# Database
-dev.db
-*.sqlite
-*.sqlite3
-*.db
-
-# Storage
-storage/
-storage/uploads/
-storage/exports/
-
-# Spec workflow temp files
+# Backend runtime data and SQLite sidecar files
+/dev.db
+/dev.db-*
+backend/*.db
+backend/*.db-*
+backend/*.sqlite
+backend/*.sqlite-*
+backend/*.sqlite3
+backend/*.sqlite3-*
+backend/storage/
+.test-upload-staging/
 .spec-workflow/
 
-# IDE
+# Frontend dependencies, build outputs, and test coverage
+node_modules/
+frontend/.tools/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/coverage/
+*.tsbuildinfo
+
+# Local logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and AI-tool working files
 .vscode/
 .idea/
+.trae/
+.serena/
 
-# OS
+# Local deliverables; fixture archives elsewhere remain allowed
+/artifacts/
+/deliverables/
+/AI-Code-Visualizer*.zip
+/backend.zip
+
+# OS files
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-.spec-workflow/
+Desktop.ini
