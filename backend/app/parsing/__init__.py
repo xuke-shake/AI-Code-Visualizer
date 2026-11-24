@@ -5,7 +5,8 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.parsing.chunker import chunk_and_save
-from app.parsing.dependency_analyzer import extract_imports
+from app.parsing.control_flow_analyzer import save_control_flow
+from app.parsing.dependency_analyzer import extract_calls, extract_imports
 from app.parsing.file_scanner import scan_zip
 from app.parsing.symbol_extractor import extract_and_save
 from app.parsing.tree_parser import parse_source
@@ -90,6 +91,7 @@ def parse_project(db: Session, project_id: int, zip_path: Path) -> dict:
             if status == "parsed":
                 chunks = chunk_and_save(db, project_id, f["id"], f["content"], symbols)
                 stats["chunks"] += len(chunks)
+                save_control_flow(db, f["id"], f["content"])
             continue
 
         savepoint = db.begin_nested()
@@ -108,16 +110,17 @@ def parse_project(db: Session, project_id: int, zip_path: Path) -> dict:
         stats["chunks"] += len(chunks)
         stats["symbols"] += len(symbols)
         _set_parse_status(db, f["id"], "parsed")
+        save_control_flow(db, f["id"], f["content"])
         diagnostic["message"] = f"解析成功，提取符号 {len(symbols)} 个"
         stats.diagnostics.append(diagnostic)
 
-    # 3. 提取 import 依赖（需要等所有文件入库后才能跨文件匹配）
+    # 3. 提取 import 依赖与函数级调用关系（需等所有文件入库后才能跨文件匹配）
     for f in usable_python_files:
         current_file = db.get(SourceFile, f["id"])
         if current_file is None or current_file.parse_status in {"failed", "partial"}:
             continue
         try:
-            dep_ids = extract_imports(db, project_id, f["id"], f["content"], known_files=known_files)
+            import_ids = extract_imports(db, project_id, f["id"], f["content"], known_files=known_files)
         except Exception as exc:
             _set_parse_status(db, f["id"], "partial")
             stats.record_diagnostic(
@@ -130,7 +133,15 @@ def parse_project(db: Session, project_id: int, zip_path: Path) -> dict:
             )
             logger.exception("单文件依赖提取失败 path=%s", f["relative_path"], exc_info=exc)
             continue
-        stats["dependencies"] += len(dep_ids)
+        stats["dependencies"] += len(import_ids)
+
+        # 调用关系提取失败不影响文件解析状态
+        try:
+            call_ids = extract_calls(db, project_id, f["id"], f["content"], known_files=known_files)
+        except Exception as exc:
+            logger.exception("单文件调用关系提取失败 path=%s", f["relative_path"], exc_info=exc)
+            call_ids = []
+        stats["dependencies"] += len(call_ids)
 
     for f in all_files:
         if f["language"] != "python":

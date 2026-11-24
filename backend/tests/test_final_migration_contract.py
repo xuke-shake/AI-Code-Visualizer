@@ -26,7 +26,7 @@ def test_usage_migration_preserves_old_data_and_marks_unknown(tmp_path, existing
             db.execute("INSERT INTO agent_runs(id,task_id,agent_name,model_name,prompt_tokens,completion_tokens,latency_ms,status) VALUES(1,1,'DiagramAgent','historical',12,3,0,'success')")
     migrate('head')
     with sqlite3.connect(database) as db:
-        assert db.execute('SELECT version_num FROM alembic_version').fetchone() == ('20261011_0003',)
+        assert db.execute('SELECT version_num FROM alembic_version').fetchone() == ('20261030_0005',)
         assert 'usage_collected' in [row[1] for row in db.execute('PRAGMA table_info(agent_runs)')]
         if existing:
             assert db.execute('SELECT prompt_tokens,completion_tokens,usage_collected FROM agent_runs').fetchone() == (12, 3, 0)

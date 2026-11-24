@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, UniqueConstraint, Index
+from sqlalchemy import JSON, BigInteger, ForeignKey, Integer, String, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.mixins import TimestampMixin
@@ -20,6 +20,8 @@ class SourceFile(Base, TimestampMixin):
     size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     line_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     parse_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    control_flow: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    control_flow_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     project = relationship("Project", back_populates="source_files")
     chunks = relationship("CodeChunk", back_populates="file", cascade="all, delete-orphan")

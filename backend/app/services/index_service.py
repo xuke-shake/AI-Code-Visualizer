@@ -15,7 +15,8 @@ from app.models.project import Project
 from app.models.repository import Repository
 from app.parsing import parse_project
 from app.parsing.chunker import chunk_and_save
-from app.parsing.dependency_analyzer import extract_imports
+from app.parsing.control_flow_analyzer import save_control_flow
+from app.parsing.dependency_analyzer import extract_calls, extract_imports
 from app.parsing.file_scanner import scan_zip_inventory
 from app.parsing.symbol_extractor import extract_and_save
 from app.parsing.tree_parser import parse_source
@@ -491,6 +492,7 @@ class IndexService:
                 content = new_files.get(sf.relative_path, {}).get("content")
                 if content is not None:
                     extract_imports(self.db, project.id, sf.id, content, known_files=known_files)
+                    extract_calls(self.db, project.id, sf.id, content, known_files=known_files)
 
             task.progress = 95
             task.message = "检查图表时效"
@@ -625,6 +627,8 @@ class IndexService:
             sf.parse_status = "empty" if not info["content"].splitlines() else "parsed"
             if sf.parse_status == "parsed":
                 chunk_and_save(self.db, project_id, sf.id, info["content"], symbols)
+        if sf.parse_status == "parsed":
+            save_control_flow(self.db, sf.id, info["content"])
         self.db.flush()
         return sf
 
